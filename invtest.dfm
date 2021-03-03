@@ -266,6 +266,15 @@ object MainForm: TMainForm
       TabOrder = 8
       OnClick = RunClick
     end
+    object HVReady: TCheckBox
+      Left = 11
+      Top = 417
+      Width = 97
+      Height = 17
+      Caption = 'HVReady'
+      Enabled = False
+      TabOrder = 9
+    end
   end
   object Timer1: TTimer
     Interval = 20

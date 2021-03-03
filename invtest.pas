@@ -47,6 +47,7 @@ type
     StateB: TLabel;
     Label12: TLabel;
     FaultReset: TButton;
+    HVReady: TCheckBox;
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -78,6 +79,7 @@ type
 
     StatusA : Word;
     StatusB : Word;
+    responseA, responseB  : word;
 
     InverterOnline : Boolean;
 
@@ -85,7 +87,7 @@ type
     procedure sendNMT(state, id : byte);
     procedure sendSDO(id : byte; idx : word; sub : byte; data : longint);
 
-    procedure sendSpeed(id : byte; vel : longint);
+    procedure sendSpeed(id : byte; cmd : word; vel : longint);
 
     procedure sendINV(msg0, msg1, msg2, msg3 : byte);
 
@@ -107,6 +109,9 @@ uses DateUtils, canlib, consts;
 {$R *.dfm}
 
 const
+
+  turnonV = 50;
+
   NMTOperational = $1;
   NMTStop = $2;
   NMTPreOp = $80;
@@ -761,26 +766,44 @@ end;
 
 // timer to handle inverter PDO's, to keep under the 100ms timeout.
 procedure TMainForm.Timer1Timer(Sender: TObject);
+var
+  vel : LongInt;
+  curstate : DeviceStatus;
 begin
 
   if InverterOnline then
   begin
+    vel := 0;
 
-    if GetInverterState(StatusA) < PREOPERATIONAL then
+    if ( HighVoltageAllowed[1] ) then
     begin
-
 
     end;
 
+    curstate := GetInverterState(StatusA);
 
-    if RunMotor then
+    // only run the state machine request to state that we currently want.
+    // we always want to be at least pre operational unless in error.
+    if curstate < PREOPERATIONAL or runmotor then
     begin
-      sendSpeed(1, 100);
-      Output.Items.Add('Send PDO');
+      responseA := InverterStateMachine( curstate, 1 );
     end;
+
+
+    if RunMotor then  // only send a speed value if run has been requested.
+       vel := 100;
+
+    // send the actual RDO to satisfy inverter timeout
+    sendSpeed(INVA_id, responseA, vel);
 
     StateA.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusA));
     StateB.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusB));
+  end else
+  begin
+    responseA := 0;
+    responseB := 0;
+  end;
+
   end;
 
 end;
@@ -816,12 +839,12 @@ begin
 end;
 
 
-procedure TMainForm.sendSpeed(id : byte; vel : longint);
-  var
+procedure TMainForm.sendSpeed(id : byte; cmd : word; vel : longint);
+var
   msg: array[0..7] of byte;
 begin
-    msg[0] := 0;
-    msg[1] := 1;
+    msg[0] := cmd shr 8;
+    msg[1] := cmd;
 
     msg[7] := 0; // torque
     msg[6] := 0; // torque
@@ -889,6 +912,15 @@ begin
           begin
             val1 :=  msg[0]+msg[1]*256;   // voltage
             val2 :=  msg[2]+msg[3]*256;   // temp
+
+
+            if val1/16 > turnonV then
+                HighVoltageReady := true
+            else
+                HighVoltageReady := false;
+
+
+            HVReady.Checked := HighVoltageReady;
 
             str := FloatToStrF(real(val1)/16, ffFixed, 4,0)+'v '+FloatToStrF(real(val2)/16, ffFixed, 8, 1)+'c';
 
