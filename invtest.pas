@@ -40,7 +40,6 @@ type
     Label7: TLabel;
     Label8: TLabel;
     Label9: TLabel;
-    AccelL: TEdit;
     Label10: TLabel;
     Label2: TLabel;
     StateA: TLabel;
@@ -48,6 +47,10 @@ type
     Label12: TLabel;
     FaultReset: TButton;
     HVReady: TCheckBox;
+    InvState: TButton;
+    SpeedScroll: TScrollBar;
+    SpeedReq: TEdit;
+    ZeroSpd: TButton;
     procedure FormKeyPress(Sender: TObject; var Key: Char);
     procedure FormCreate(Sender: TObject);
     procedure FormShow(Sender: TObject);
@@ -59,6 +62,10 @@ type
     procedure StopClick(Sender: TObject);
     procedure FormClose(Sender: TObject; var Action: TCloseAction);
     procedure Timer1Timer(Sender: TObject);
+    procedure InvStateClick(Sender: TObject);
+    procedure FaultResetClick(Sender: TObject);
+    procedure SpeedScrollChange(Sender: TObject);
+    procedure ZeroSpdClick(Sender: TObject);
   private
     { Private declarations }
     StartTime: TDateTime;
@@ -68,6 +75,8 @@ type
     MainStatus : Integer;
 
     RunMotor : Boolean;
+    StopMotor : Boolean;
+    RunInvState : Boolean;
     RunPDO : Boolean;
 
     SendPos : Integer;
@@ -81,10 +90,9 @@ type
     StatusB : Word;
     responseA, responseB  : word;
 
-    InverterOnline : Boolean;
-
     procedure CanChannel1CanRx(Sender: TObject);
     procedure sendNMT(state, id : byte);
+    procedure sendSync();
     procedure sendSDO(id : byte; idx : word; sub : byte; data : longint);
 
     procedure sendSpeed(id : byte; cmd : word; vel : longint);
@@ -132,6 +140,7 @@ const
   RPDO2_id = $300;
   RPDO3_id = $400;
   RPDO4_id = $500;
+  RPDO5_id = $540;
 
 
   SDORX_id = $580; // 5c0 = INV B
@@ -420,17 +429,16 @@ SDOtx to id 32.         [cmd][index][sub]  [value]
   var
     badvalue : byte;
 
-
   type
     DeviceStatus = (OFFLINE, BOOTUP, STOPPED, PREOPERATIONAL, OPERATIONAL, INERROR, UNKNOWN);
 
 
-function GetInverterState ( status : Word ) : DeviceStatus;// status 104, failed to turn on HV 200, failure of encoders/temp
+function GetInverterState ( status : Byte ) : DeviceStatus;// status 104, failed to turn on HV 200, failure of encoders/temp
 begin
 	// establish current state machine position from return status.
 	if ( ( Status and $4F ) = $40) then // 64
 	begin // Switch on disabled
-		result := BOOTUP; //1;
+		result := BOOTUP; //1;  // statup disabled.
 	end
 	else if ( ( Status and $6F ) = $21 ) then // 49
 	begin // Ready to switch on
@@ -444,22 +452,25 @@ begin
 	begin // Operation enabled.
 		result := OPERATIONAL;//4;
 	end
-	else if ( ( ( Status and $6F ) = $07 )
-			 or ( ( Status and $1F ) = $13 ) )   then
+	else if ( ( Status and $6F ) = $07 )
+			 or ( ( Status and $1F ) = $13 )   then
 	begin // Quick Stop Active
 		result := INERROR; // -1;
 	end
-	else if  ( ( ( Status and $4F ) = $0F )
-			 or ( ( Status and $4F ) = $05 ) ) then
+	else if ( ( Status and $4F ) = $0F )
+			 or ( ( Status and $4F ) = $05 ) then
   begin // fault reaction active, will move to fault status next
 		result := INERROR; // -2;
 	end
-	else if  ( ( ( Status and $4F ) = $04 )
-			 or ( ( Status and $08 ) = $04 ) ) then
+	else if ( ( Status and $4F ) = $04 )
+			 or ( ( Status and $08 ) = $08 ) then
 	begin // fault status
 		result := INERROR;//-99;
 		// send reset
 	end else
+
+//  else if( ( Status and $ ) = $00 )  then
+
 	begin // unknown state
 		result := UNKNOWN; // state 0 will request reset to enter State 1,
 		// will fall here at start of loop and if unknown status.
@@ -556,6 +567,11 @@ begin
   end;
 end;
 
+procedure TMainForm.InvStateClick(Sender: TObject);
+begin
+  RunInvState := true;
+end;
+
 procedure TMainForm.CanDevicesChange(Sender: TObject);
 begin
    CanChannel1.Channel := CanDevices.ItemIndex;
@@ -566,6 +582,28 @@ begin
   Output.Clear;
 end;
 
+
+procedure TMainForm.FaultResetClick(Sender: TObject);
+var
+  msg: array[0..7] of byte;
+  i : Integer;
+begin
+
+  for i := 0 to 7 do
+    msg[i] := 0;
+
+   msg[0] := $80;
+
+
+  with CanChannel1 do
+  begin
+    if Active then
+    begin
+      CanSend(RPDO1_id+INVA_id, msg, 8, 0);
+      CanSend(RPDO3_id+INVA_id, msg, 8, 0);
+    end;
+  end;
+end;
 
 procedure TMainForm.FormClose(Sender: TObject; var Action: TCloseAction);
 begin
@@ -622,9 +660,23 @@ begin
     begin
       Output.Items.Add('Putting inverters to ready state?');
 
-      //sendSDO(APPC_id, $4004, 1, 1234);    // disable APPC PDO to take manual control
+      sendSDO(APPC_id, $4004, 1, 1234);    // disable APPC PDO to take manual control
 
-   //   sendNMT(  NMTOperational, $0 );
+
+      // set sdo to 10ms cycle
+   //   sendSDO(INVA_id, $1801, 5, 10);
+
+
+   // set SDO's to sync
+      sendSDO(INVA_id, $1801, 2, 1);
+      sendSDO(INVA_id, $1802, 2, 1);
+      sendSDO(INVA_id, $1802, 2, 1);
+
+    //  sendNMT( NMTPreOp, $1 );
+    //  Sleep(100);
+    //  sendNMT( NMTOperational, $1 );
+
+   //   sendNMT(  NMTStop, $0 );
 
       RunPDO := true;
     end;
@@ -635,18 +687,42 @@ end;
 procedure TMainForm.RunClick(Sender: TObject);
 var
   msg: array[0..7] of byte;
+  i : Integer;
 begin
+
+  for i := 0 to 7 do
+    msg[i] := 0;
+
   with CanChannel1 do
   begin
     if Active then
     begin
-      Output.Items.Add('Running motors?');
+
+    if RunMotor = false then
+    begin
+      Output.Items.Add('Enabled Running motors');
+      Run.Caption := 'Stop Motors';
+      StopMotor := false;
+
+   //   InverterOnline : Boolean;
       RunMotor := true;
-      SendTime := TStopwatch.StartNew;
+     // SendTime := TStopwatch.StartNew;
+    end else
+    begin
+      RunMotor := false;
+      StopMotor := true;
+      Run.Caption := 'Run Motors';
+      Output.Items.Add('Stopping motors');
+    end;
     end;
   end;
 end;
 
+
+procedure TMainForm.SpeedScrollChange(Sender: TObject);
+begin
+  SpeedReq.Text := SpeedScroll.Position.ToString;
+end;
 
 procedure TMainForm.StopClick(Sender: TObject);
 var
@@ -659,19 +735,19 @@ begin
     begin
       Output.Items.Add('Stopping?');
       RunMotor := false;
-     // sendNMT(  NMTStop, $0 );
+      RunPDO := false;
+      sendNMT(  NMTStop, $1 );
     end;
   end;
 end;
 
 
 // returns response to send inverter based on current state.
-function InverterStateMachine( State, Inverter : Word ) : Word;
+function InverterStateMachine( State, Inverter : Word; MaxState : DeviceStatus ) : Word;
 var
   TXState : Word ;
 begin
 	// first check for fault status, and issue reset.
-
 	TXState := 0; // default  do nothing state.
 	// process regular state machine sequence
 	case GetInverterState(State) of
@@ -695,7 +771,9 @@ begin
         if ( HighVoltageReady ) then
         begin  // TS enable button pressed and both inverters are marked HV ready proceed to state 3.
           HighVoltageAllowed[Inverter] := true;
-          TXState := $07; //0b000 0111; // request Switch on message, State 3..
+          TXState := $0F; //0b0000 0111; // request Switch on message, State 3..
+
+          // for lenze, $07 seems to to nothing, it seems to require enable operation.
         end else
         begin
           HighVoltageAllowed[Inverter] := false;
@@ -731,16 +809,20 @@ begin
             TXState = 0b00000111; // request state 3: Switched on.
           end;
           else }
-          if ( not HighVoltageReady ) then
-          begin  // full motor stop has been requested
-            HighVoltageAllowed[Inverter] := false; // drop back to ready to switch on.
-            TXState := $06;// 0b0000 0110;//0b00000000; // request Disable Voltage., alternately Quick Stop 0b00000010 - test to see if any difference in behaviour.
-          end
-          else
-          begin  // no change, continue to request operation.
-            TXState := $0F;// 0b0000 1111;
-            HighVoltageAllowed[Inverter] := true;
-          end;
+          if MaxState < OPERATIONAL then
+          begin
+             TXState := $06;
+          end else
+            if ( not HighVoltageReady ) then
+            begin  // full motor stop has been requested
+              HighVoltageAllowed[Inverter] := false; // drop back to ready to switch on.
+              TXState := $06;// 0b0000 0110;//0b00000000; // request Disable Voltage., alternately Quick Stop 0b00000010 - test to see if any difference in behaviour.
+            end
+            else
+            begin  // no change, continue to request operation.
+              TXState := $0F;// 0b0000 1111;
+              HighVoltageAllowed[Inverter] := true;
+            end;
 			  end;
 
 	//	case -1 : //5 Quick Stop Active - Fall through to default to reset state.
@@ -771,7 +853,7 @@ var
   curstate : DeviceStatus;
 begin
 
-  if InverterOnline then
+  if RunInvState and RunPDO then
   begin
     vel := 0;
 
@@ -782,30 +864,60 @@ begin
 
     curstate := GetInverterState(StatusA);
 
-    // only run the state machine request to state that we currently want.
-    // we always want to be at least pre operational unless in error.
-    if curstate < PREOPERATIONAL or runmotor then
+    if curstate = INERROR then
     begin
-      responseA := InverterStateMachine( curstate, 1 );
+      runmotor := false;
     end;
 
+  //  responseA := 0;
 
-    if RunMotor then  // only send a speed value if run has been requested.
-       vel := 100;
+    // only run the state machine request to state that we currently want.
+    // we always want to be at least pre operational unless in error.
+    if ( curstate < PREOPERATIONAL ) then
+    begin
+      responseA := InverterStateMachine( StatusA, 1, PREOPERATIONAL);
+    end
+    else if( curstate = OPERATIONAL ) and stopmotor = true then
+    begin
+      responseA := 6;// InverterStateMachine( StatusA, 1, PREOPERATIONAL);
+      stopmotor := false;
+    end
+    else if runmotor = true then
+    begin
+      responseA := InverterStateMachine( StatusA, 1, OPERATIONAL);
+    end;
+
+    if ( curstate = OPERATIONAL ) and runmotor = true then  // only send a speed value if run has been requested.
+       vel := StrToInt(SpeedReq.Text);
 
     // send the actual RDO to satisfy inverter timeout
     sendSpeed(INVA_id, responseA, vel);
 
-    StateA.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusA));
-    StateB.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusB));
-  end else
+  end else if RunPDO then
   begin
+
+   // send default blank PDO APPC sends to keep from timing out once we take control
+
+    sendSpeed(INVA_id, 01, 0);
     responseA := 0;
     responseB := 0;
   end;
 
-  end;
+  if RunPDO then
+    sendSync;
 
+  if StatusA <> 0 then
+    StateA.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusA));
+  if StatusB <> 0 then
+    StateB.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusB));
+
+
+
+end;
+
+procedure TMainForm.ZeroSpdClick(Sender: TObject);
+begin
+  SpeedScroll.Position := 0;
 end;
 
 procedure TMainForm.sendNMT( state, id : byte );
@@ -815,8 +927,15 @@ begin
     msg[0] := state;
     msg[1] := id;
     MainForm.Output.Items.Add('NMTSend('+IntToStr(state)+' '+IntToStr(id)+')');
-    RunPDO := false;
+  //  RunPDO := false;
     MainForm.CanSend($0, msg, 2, 0);
+end;
+
+procedure TMainForm.sendSync;
+var
+  msg: array[0..7] of byte;
+begin
+    MainForm.CanSend($80, msg, 0, 0);
 end;
 
 
@@ -841,21 +960,40 @@ end;
 
 procedure TMainForm.sendSpeed(id : byte; cmd : word; vel : longint);
 var
-  msg: array[0..7] of byte;
+  msg, msgblank: array[0..7] of byte;
+  i : Integer;
 begin
-    msg[0] := cmd shr 8;
-    msg[1] := cmd;
+    msg[0] := cmd;// cmd shr 8;
+    msg[1] := 0;  // most significant byte;
 
     msg[7] := 0; // torque
     msg[6] := 0; // torque
 
-    msg[2] := vel shr 24;    // speed
-    msg[3] := vel shr 16;
-    msg[4] := vel shr 8;
-    msg[5] := vel;
 
-    MainForm.Output.Items.Add('VelSend()');
+    vel := vel * $4000;
+
+    msg[5] := vel shr 24;    // speed
+    msg[4] := vel shr 16;
+    msg[3] := vel shr 8;
+    msg[2] := vel;
+
+    for i := 0 to 7 do
+      msgblank[i] := 0;
+
+ //   MainForm.Output.Items.Add('VelSend()');
     MainForm.CanSend(RPDO1_id+id, msg, 8, 0);
+    MainForm.CanSend(RPDO2_id+id, msgblank, 8, 0);
+
+    msg[0] := 0;// cmd shr 8;
+    MainForm.CanSend(RPDO3_id+id, msg, 8, 0);
+    MainForm.CanSend(RPDO4_id+id, msgblank, 8, 0);
+
+
+   // msg[0] := 0;
+  //  msg[1] := 0;
+
+    MainForm.CanSend(RPDO5_id+id, msgblank, 8, 0);
+
 end;
 
 
@@ -872,6 +1010,17 @@ begin
     MainForm.CanSend($411, msg, 8, 0);
 end;
 
+
+
+function MsgToStr(msg : array of byte) : string;
+var
+i : integer;
+begin
+  result := '';
+  for i := 0 to 7 do
+    result := result + IntToHex(msg[i])+ ' ';
+end;
+
 procedure TMainForm.CanChannel1CanRx(Sender: TObject);
 var
   dlc, flag, time: cardinal;
@@ -880,7 +1029,8 @@ var
   status : cardinal;
   id: longint;
   formattedDateTime, str : string;
-  val1, val2, val3, val4 : longint;
+  val1 : longint;
+  val2, val3, val4 : Cardinal;
 begin
 //  Output.Items.BeginUpdate;
   with CanChannel1 do
@@ -910,7 +1060,7 @@ begin
           //TPDO 1 - actual values from device
           TPDO1_id+INVA_id :
           begin
-            val1 :=  msg[0]+msg[1]*256;   // voltage
+            val1 :=  msg[0]+msg[1]*256;   // voltage      // lsb msb
             val2 :=  msg[2]+msg[3]*256;   // temp
 
 
@@ -932,11 +1082,11 @@ begin
           TPDO2_id+INVA_id :
           begin
             // Drive Profile Inverter A statusword
-            val1 := msg[0]+msg[1] shl 8;
+            val1 := msg[0]; //msg[1]+msg[0] shl 8;
 
             StatusA := val1;
 
-            InverterOnline := true;
+         //   InverterOnline := true;
 
             // we've seen the inverter on bus, enable the startup button to get to ready to turn on state.
             if not StartInv.Enabled then StartInv.Enabled := true;
@@ -956,7 +1106,7 @@ begin
           TPDO3_id+INVA_id :
           begin
             // Drive Profile Inverter A vl velocity actual value
-            val1 := msg[0]+msg[1] shl 8 + msg[2] shl 16 + msg[3] shl 24;
+            val1 := (msg[0]+msg[1] shl 8 + msg[2] shl 16 + msg[3] shl 24) div 16384;
             // tq torque actual value
             val2 := msg[4]+msg[5] shl 8;
             // tq current actual value
@@ -988,7 +1138,11 @@ begin
           SDORX_id .. SDORX_id+64 :
           begin
 
-             Output.Items.Add('SDO received on id '+IntToStr(id));
+
+             Output.Items.Add('SDO received on id '+IntToStr(id) + ' ' + MsgToStr(msg));//+ IntToHex(msg[0]+));
+
+
+
           end;
 
                   { Output.Items.Add('IVTReceive('+ IntToStr(msg[0])+','+IntToStr(msg[1])+','+IntToStr(msg[2])

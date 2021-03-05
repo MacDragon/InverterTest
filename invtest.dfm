@@ -149,8 +149,8 @@ object MainForm: TMainForm
       Caption = 'TPDO2'
     end
     object Label10: TLabel
-      Left = 11
-      Top = 337
+      Left = 13
+      Top = 321
       Width = 30
       Height = 13
       Caption = 'Speed'
@@ -220,11 +220,10 @@ object MainForm: TMainForm
     end
     object StartInv: TButton
       Left = 620
-      Top = 378
+      Top = 316
       Width = 75
       Height = 25
       Caption = 'Startup'
-      Enabled = False
       TabOrder = 4
       OnClick = StartInvClick
     end
@@ -233,8 +232,7 @@ object MainForm: TMainForm
       Top = 409
       Width = 75
       Height = 25
-      Caption = 'Run Motor'
-      Enabled = False
+      Caption = 'Run Motors'
       TabOrder = 5
       OnClick = RunClick
     end
@@ -247,24 +245,14 @@ object MainForm: TMainForm
       TabOrder = 6
       OnClick = StopClick
     end
-    object AccelL: TEdit
-      Left = 96
-      Top = 334
-      Width = 121
-      Height = 21
-      NumbersOnly = True
-      TabOrder = 7
-      Text = '0'
-    end
     object FaultReset: TButton
       Left = 620
-      Top = 332
+      Top = 347
       Width = 75
       Height = 25
       Caption = 'Reset Fault'
-      Enabled = False
-      TabOrder = 8
-      OnClick = RunClick
+      TabOrder = 7
+      OnClick = FaultResetClick
     end
     object HVReady: TCheckBox
       Left = 11
@@ -273,11 +261,49 @@ object MainForm: TMainForm
       Height = 17
       Caption = 'HVReady'
       Enabled = False
+      TabOrder = 8
+    end
+    object InvState: TButton
+      Left = 620
+      Top = 378
+      Width = 75
+      Height = 25
+      Caption = 'InvState'
       TabOrder = 9
+      OnClick = InvStateClick
+    end
+    object SpeedScroll: TScrollBar
+      Left = 96
+      Top = 345
+      Width = 121
+      Height = 17
+      Max = 1000
+      Min = -1000
+      PageSize = 0
+      TabOrder = 10
+      OnChange = SpeedScrollChange
+    end
+    object SpeedReq: TEdit
+      Left = 96
+      Top = 318
+      Width = 121
+      Height = 21
+      Enabled = False
+      TabOrder = 11
+      Text = '0'
+    end
+    object ZeroSpd: TButton
+      Left = 142
+      Top = 368
+      Width = 75
+      Height = 25
+      Caption = 'ZeroSpd'
+      TabOrder = 12
+      OnClick = ZeroSpdClick
     end
   end
   object Timer1: TTimer
-    Interval = 20
+    Interval = 10
     OnTimer = Timer1Timer
     Left = 120
     Top = 104
