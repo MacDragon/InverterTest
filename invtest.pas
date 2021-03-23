@@ -1,5 +1,9 @@
 unit invtest;
 
+{$IFDEF FPC}
+  {$MODE Delphi}
+{$ENDIF}
+
 interface
 
 {$Define HPF20}
@@ -8,9 +12,14 @@ uses
 //  Winapi.Windows, Winapi.Messages, System.SysUtils, System.Variants, System.Classes, Vcl.Graphics,
 //  Vcl.Controls, Vcl.Forms, Vcl.Dialogs, Vcl.StdCtrls, CanChanEx, Vcl.ExtCtrls,
 //  Vcl.Mask;
-  Windows, Messages, SysUtils, Variants, Classes, Graphics,
+{$IFnDEF FPC}
+  System.Diagnostics, Mask, Windows,
+{$ELSE}
+  MaskEdit, LCLIntf, LCLType, LMessages,
+{$ENDIF}
+  Messages, SysUtils, Variants, Classes, Graphics,
   Controls, Forms, Dialogs, StdCtrls, CanChanEx, ExtCtrls,
-  Mask, System.Diagnostics, RTTI;
+  RTTI;
 
 type
   TMainForm = class(TForm)
@@ -80,7 +89,7 @@ type
     RunPDO : Boolean;
 
     SendPos : Integer;
-    SendTime : TStopwatch;
+   // SendTime : TStopwatch;
     SendType : byte;
     SendSize : integer;
     SendBuffer: array[0..4095] of byte;
@@ -905,12 +914,12 @@ begin
 
   if RunPDO then
     sendSync;
-
+       {$IFnDEF FPC}
   if StatusA <> 0 then
     StateA.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusA));
   if StatusB <> 0 then
     StateB.Caption := TRttiEnumerationType.GetName(GetInverterState(StatusB));
-
+         {$ENDIF}
 
 
 end;
@@ -1018,7 +1027,7 @@ i : integer;
 begin
   result := '';
   for i := 0 to 7 do
-    result := result + IntToHex(msg[i])+ ' ';
+    result := result + IntToHex(msg[i],4)+ ' ';
 end;
 
 procedure TMainForm.CanChannel1CanRx(Sender: TObject);
@@ -1072,7 +1081,7 @@ begin
 
             HVReady.Checked := HighVoltageReady;
 
-            str := FloatToStrF(real(val1)/16, ffFixed, 4,0)+'v '+FloatToStrF(real(val2)/16, ffFixed, 8, 1)+'c';
+            str := FloatToStrF(val1/16, ffFixed, 4,0)+'v '+FloatToStrF(val2/16, ffFixed, 8, 1)+'c';    // real() removed
 
             if ( id-TPDO1_id = INVA_id) then
               TPDOA1.Caption := str;

@@ -1,7 +1,15 @@
 program InverterTest;
 
+{$IFDEF FPC}
+  {$MODE Delphi}
+{$ENDIF}
+
 uses
+{$IFnDEF FPC}
   Vcl.Forms,
+{$ELSE}
+  Forms, Interfaces,
+{$ENDIF}
   invtest in 'invtest.pas' {MainForm};
 
 {$R *.res}
