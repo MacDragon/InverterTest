@@ -568,7 +568,7 @@ begin
       goOnBus.Caption := 'Go on bus';
       CanDevices.Enabled := true;
       Close;
-       Output.Items.Add('Offline.');
+      Output.Items.Add('Offline.');
     end;
 
   //  if Active then Label1.Caption := 'Active' else Label1.Caption := 'Inactive';
@@ -671,12 +671,10 @@ begin
 
       sendSDO(APPC_id, $4004, 1, 1234);    // disable APPC PDO to take manual control
 
-
       // set sdo to 10ms cycle
-   //   sendSDO(INVA_id, $1801, 5, 10);
+      sendSDO(INVA_id, $1801, 5, 10);
 
-
-   // set SDO's to sync
+   // set SDO's to sync, shouldn't need to do this if settings stored.
       sendSDO(INVA_id, $1801, 2, 1);
       sendSDO(INVA_id, $1802, 2, 1);
       sendSDO(INVA_id, $1802, 2, 1);
@@ -744,8 +742,9 @@ begin
     begin
       Output.Items.Add('Stopping?');
       RunMotor := false;
-      RunPDO := false;
-      sendNMT(  NMTStop, $1 );
+      stopmotor := true;
+      //RunPDO := false;
+      //sendNMT(  NMTStop, $1 );
     end;
   end;
 end;
@@ -871,7 +870,7 @@ begin
 
     end;
 
-    curstate := GetInverterState(StatusA);
+    curstate := GetInverterState(StatusB);
 
     if curstate = INERROR then
     begin
@@ -884,23 +883,23 @@ begin
     // we always want to be at least pre operational unless in error.
     if ( curstate < PREOPERATIONAL ) then
     begin
-      responseA := InverterStateMachine( StatusA, 1, PREOPERATIONAL);
+      responseB := InverterStateMachine( StatusB, 1, PREOPERATIONAL);
     end
     else if( curstate = OPERATIONAL ) and stopmotor = true then
     begin
-      responseA := 6;// InverterStateMachine( StatusA, 1, PREOPERATIONAL);
+      responseB := 6;// InverterStateMachine( StatusA, 1, PREOPERATIONAL);
       stopmotor := false;
     end
     else if runmotor = true then
     begin
-      responseA := InverterStateMachine( StatusA, 1, OPERATIONAL);
+      responseB := InverterStateMachine( StatusB, 1, OPERATIONAL);
     end;
 
     if ( curstate = OPERATIONAL ) and runmotor = true then  // only send a speed value if run has been requested.
        vel := StrToInt(SpeedReq.Text);
 
     // send the actual RDO to satisfy inverter timeout
-    sendSpeed(INVA_id, responseA, vel);
+    sendSpeed(INVA_id, responseB, vel);
 
   end else if RunPDO then
   begin
@@ -937,7 +936,7 @@ begin
     msg[1] := id;
     MainForm.Output.Items.Add('NMTSend('+IntToStr(state)+' '+IntToStr(id)+')');
   //  RunPDO := false;
-    MainForm.CanSend($0, msg, 2, 0);
+ //   MainForm.CanSend($0, msg, 2, 0);
 end;
 
 procedure TMainForm.sendSync;
@@ -972,7 +971,7 @@ var
   msg, msgblank: array[0..7] of byte;
   i : Integer;
 begin
-    msg[0] := cmd;// cmd shr 8;
+    msg[0] := 0;// cmd shr 8;
     msg[1] := 0;  // most significant byte;
 
     msg[7] := 0; // torque
@@ -993,7 +992,7 @@ begin
     MainForm.CanSend(RPDO1_id+id, msg, 8, 0);
     MainForm.CanSend(RPDO2_id+id, msgblank, 8, 0);
 
-    msg[0] := 0;// cmd shr 8;
+    msg[0] := cmd;// cmd shr 8;
     MainForm.CanSend(RPDO3_id+id, msg, 8, 0);
     MainForm.CanSend(RPDO4_id+id, msgblank, 8, 0);
 
@@ -1002,6 +1001,8 @@ begin
   //  msg[1] := 0;
 
     MainForm.CanSend(RPDO5_id+id, msgblank, 8, 0);
+
+   // RPDO3 := vel
 
 end;
 
@@ -1040,6 +1041,7 @@ var
   formattedDateTime, str : string;
   val1 : longint;
   val2, val3, val4 : Cardinal;
+  ErrorCode : cardinal;
 begin
 //  Output.Items.BeginUpdate;
   with CanChannel1 do
@@ -1061,9 +1063,26 @@ begin
 
         case id of
 
-          TERR_id+INVA_id,  TERR_id+INVB_id,  TERR_id+APPC_id :
+          TERR_id+APPC_id :
           begin
-         //   Output.Items.Add('Error received.');
+            ErrorCode := msg[1]*256+msg[0];
+            if (ErrorCode <> 0 ) and (( ErrorCode < $8000 )or ( ErrorCode > $8500 )) then
+            begin
+               Output.Items.Add('Error received:'+IntToHex(ErrorCode)+' Register:'+IntToHex(msg[2]));
+            end;
+
+          end;
+
+          TERR_id+INVA_id,  TERR_id+INVB_id :
+          begin
+            ErrorCode := msg[1]*256+msg[0];
+            if (ErrorCode <> 0 ) then
+            begin
+               Output.Items.Add('Error received:'+IntToHex(ErrorCode)+' Register:'+IntToHex(msg[2]));
+            end;
+            ErrorCode := msg[4]*256+msg[3];
+            if (ErrorCode <> 0 ) then
+               Output.Items.Add('Error received:'+IntToStr(ErrorCode));
           end;
 
           //TPDO 1 - actual values from device
@@ -1072,12 +1091,10 @@ begin
             val1 :=  msg[0]+msg[1]*256;   // voltage      // lsb msb
             val2 :=  msg[2]+msg[3]*256;   // temp
 
-
             if val1/16 > turnonV then
                 HighVoltageReady := true
             else
                 HighVoltageReady := false;
-
 
             HVReady.Checked := HighVoltageReady;
 
@@ -1088,12 +1105,10 @@ begin
           end;
 
           //TPDO 2 - status from inverter A
-          TPDO2_id+INVA_id :
+          TPDO2_id+INVA_id, TPDO5_id+INVA_id :
           begin
             // Drive Profile Inverter A statusword
             val1 := msg[0]; //msg[1]+msg[0] shl 8;
-
-            StatusA := val1;
 
          //   InverterOnline := true;
 
@@ -1108,11 +1123,19 @@ begin
             str := IntToStr(val1) + ' ' + IntToStr(val2 ) + ' ' + IntToStr(val3);
 
             if ( id-TPDO2_id = INVA_id) then
+            begin
               TPDOA2.Caption := str;
+              StatusA := val1;
+            end;
+            if ( id-TPDO5_id = INVA_id) then
+            begin
+              StatusB := val1;
+              TPDOA5.Caption := str;
+            end;
           end;
 
 
-          TPDO3_id+INVA_id :
+          TPDO3_id+INVA_id, TPDO6_id+INVA_id :
           begin
             // Drive Profile Inverter A vl velocity actual value
             val1 := (msg[0]+msg[1] shl 8 + msg[2] shl 16 + msg[3] shl 24) div 16384;
@@ -1124,9 +1147,12 @@ begin
 
             if ( id-TPDO3_id = INVA_id) then
               TPDOA3.Caption := str;
+
+            if ( id-TPDO6_id = INVA_id) then
+              TPDOA6.Caption := str;
           end;
 
-          TPDO4_id+INVA_id :
+          TPDO4_id+INVA_id, TPDO7_id+INVA_id :
           begin
             // Motor A: Temperature
             val1 := msg[0]+msg[1] shl 8;
@@ -1141,6 +1167,9 @@ begin
 
             if ( id-TPDO4_id = INVA_id) then
               TPDOA4.Caption := str;
+            if ( id-TPDO7_id = INVA_id) then
+              TPDOA7.Caption := str;
+
           end;
 
 
@@ -1148,7 +1177,7 @@ begin
           begin
 
 
-             Output.Items.Add('SDO received on id '+IntToStr(id) + ' ' + MsgToStr(msg));//+ IntToHex(msg[0]+));
+            // Output.Items.Add('SDO received on id '+IntToStr(id) + ' ' + MsgToStr(msg));//+ IntToHex(msg[0]+));
 
 
 
